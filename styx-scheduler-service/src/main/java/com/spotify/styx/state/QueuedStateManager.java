@@ -149,6 +149,7 @@ public class QueuedStateManager implements StateManager {
   public CompletableFuture<Void> receive(Event event, long expectedCounter) throws IsClosedException {
     ensureRunning();
     LOG.info("Received event {}", event);
+    System.out.println("#1 Received event " + event);
 
     // TODO: optional retry on transaction conflict
 
@@ -195,49 +196,56 @@ public class QueuedStateManager implements StateManager {
   }
 
   private Tuple2<SequenceEvent, RunState> transition(Event event, long expectedCounter) {
-    queuedEvents.decrement();
     try {
-      return storage.runInTransaction(tx -> {
+      System.out.println("#2 Processing " + event);
+      queuedEvents.decrement();
+      try {
+        return storage.runInTransaction(tx -> {
 
-        // Read active state from datastore
-        final Optional<RunState> currentRunState =
-            tx.readActiveState(event.workflowInstance());
-        if (!currentRunState.isPresent()) {
-          String message = "Received event for unknown workflow instance: " + event;
-          LOG.warn(message);
-          throw new IllegalArgumentException(message);
-        }
+          // Read active state from datastore
+          final Optional<RunState> currentRunState =
+              tx.readActiveState(event.workflowInstance());
+          if (!currentRunState.isPresent()) {
+            String message = "Received event for unknown workflow instance: " + event;
+            LOG.warn(message);
+            throw new IllegalArgumentException(message);
+          }
 
-        // Verify counters for in-order event processing
-        verifyCounter(event, expectedCounter, currentRunState.get());
+          // Verify counters for in-order event processing
+          verifyCounter(event, expectedCounter, currentRunState.get());
 
-        final RunState nextRunState;
-        try {
-          nextRunState = currentRunState.get().transition(event, time);
-        } catch (IllegalStateException e) {
-          // TODO: illegal state transitions might become common as multiple scheduler
-          //       instances concurrently consume events from k8s.
-          LOG.warn("Illegal state transition", e);
-          throw e;
-        }
+          final RunState nextRunState;
+          try {
+            nextRunState = currentRunState.get().transition(event, time);
+          } catch (IllegalStateException e) {
+            // TODO: illegal state transitions might become common as multiple scheduler
+            //       instances concurrently consume events from k8s.
+            LOG.warn("Illegal state transition", e);
+            throw e;
+          }
 
-        // Write new state to datastore (or remove it if terminal)
-        if (nextRunState.state().isTerminal()) {
-          tx.deleteActiveState(event.workflowInstance());
-        } else {
-          tx.updateActiveState(event.workflowInstance(), nextRunState);
-        }
+          // Write new state to datastore (or remove it if terminal)
+          if (nextRunState.state().isTerminal()) {
+            tx.deleteActiveState(event.workflowInstance());
+          } else {
+            tx.updateActiveState(event.workflowInstance(), nextRunState);
+          }
 
-        // Resource limiting occurs by throwing here, or by failing the commit with a conflict.
-        updateResourceCounters(tx, event, currentRunState.get(), nextRunState);
+          // Resource limiting occurs by throwing here, or by failing the commit with a conflict.
+          updateResourceCounters(tx, event, currentRunState.get(), nextRunState);
 
-        final SequenceEvent sequenceEvent =
-            SequenceEvent.create(event, nextRunState.counter(), nextRunState.timestamp());
+          final SequenceEvent sequenceEvent =
+              SequenceEvent.create(event, nextRunState.counter(), nextRunState.timestamp());
 
-        return Tuple.of(sequenceEvent, nextRunState);
-      });
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+          System.out.println("#3 Done processing " + event);
+          return Tuple.of(sequenceEvent, nextRunState);
+        });
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    } catch (Exception e) {
+      System.out.println(e);
+      throw e;
     }
   }
 
