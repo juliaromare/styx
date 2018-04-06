@@ -294,7 +294,7 @@ public class QueuedStateManager implements StateManager {
       if (!runState.data().message().map(message::equals).orElse(false)) {
         receiveIgnoreClosed(Event.info(runState.workflowInstance(), message), runState.counter());
       }
-      throw new RuntimeException("I need to fail this");
+      //throw new RuntimeException("I need to fail this");
     }
 
     if (!failedTries.isEmpty()) {
