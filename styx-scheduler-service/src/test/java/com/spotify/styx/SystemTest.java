@@ -677,6 +677,7 @@ public class SystemTest extends StyxSchedulerServiceFixture {
 
   @Test
   public void shouldLimitConcurrencyForResource() throws Exception {
+    System.out.println("Init test shouldLimitConcurrencyForResource");
     givenResource(RESOURCE_4);
     for (int i = 0; i < 4; i++) {
       givenWorkflowAboutToTriggerWithResources("foo_" + i, ImmutableSet.of(RESOURCE_4.id()));
@@ -692,6 +693,7 @@ public class SystemTest extends StyxSchedulerServiceFixture {
     });
     // TODO assert the message too?
     // ("Resource limit reached for: [Resource{id=resource_4, concurrency=3}]")
+    System.out.println("Done with test shouldLimitConcurrencyForResource");
   }
 
   @Test
