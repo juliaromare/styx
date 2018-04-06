@@ -39,7 +39,6 @@ import com.spotify.styx.storage.TransactionException;
 import com.spotify.styx.util.AlreadyInitializedException;
 import com.spotify.styx.util.CounterCapacityException;
 import com.spotify.styx.util.IsClosedException;
-import com.spotify.styx.util.ResourceNotFoundException;
 import com.spotify.styx.util.ShardedCounter;
 import com.spotify.styx.util.Time;
 import eu.javaspecialists.tjsn.concurrency.stripedexecutor.StripedExecutorService;

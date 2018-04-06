@@ -94,8 +94,8 @@ class TriggerManager {
       return;
     }
 
-    System.out.println("Can be triggered wfs " + canBeTriggeredWorkflows.keySet().stream().map
-        (wf -> wf.workflowId()).collect(toList()));
+    System.out.println("Can be triggered wfs " + canBeTriggeredWorkflows.keySet().stream()
+        .map(wf -> wf.workflowId()).collect(toList()));
     final Instant now = time.get();
     canBeTriggeredWorkflows.entrySet().parallelStream()
         .filter(entry -> now.isAfter(entry.getValue().offsetInstant()))
