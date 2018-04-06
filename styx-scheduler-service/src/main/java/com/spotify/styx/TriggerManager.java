@@ -121,6 +121,7 @@ class TriggerManager {
         } catch (AlreadyInitializedException ignored) {
           // nop
         } catch (Throwable e) {
+          System.out.println("Triggering threw " + e);
           LOG.warn("Triggering {} threw exception", workflow.id(), e);
           return; // so we don't update the trigger time
         }
