@@ -109,6 +109,7 @@ class TriggerManager {
                              TriggerInstantSpec instantSpec,
                              Set<WorkflowId> enabledWorkflows) {
     guard(() -> {
+      System.out.println("Trying now to trigger " + workflow);
       if (enabledWorkflows.contains(workflow.id())) {
         try {
           final CompletionStage<Void> processed = triggerListener.event(
@@ -140,6 +141,7 @@ class TriggerManager {
             workflow.id(), nextTrigger);
         throw Throwables.propagate(e);
       }
+      System.out.println("Triggering complete for " + workflow);
     }).run();
   }
 }
