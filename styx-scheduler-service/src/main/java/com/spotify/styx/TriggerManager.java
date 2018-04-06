@@ -25,6 +25,7 @@ import static com.google.common.base.CaseFormat.UPPER_CAMEL;
 import static com.spotify.styx.util.GuardedRunnable.guard;
 import static com.spotify.styx.util.TimeUtil.nextInstant;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toList;
 
 import com.google.common.base.Throwables;
 import com.spotify.styx.model.Schedule;
@@ -93,6 +94,8 @@ class TriggerManager {
       return;
     }
 
+    System.out.println("Can be triggered wfs " + canBeTriggeredWorkflows.keySet().stream().map
+        (wf -> wf.workflowId()).collect(toList()));
     final Instant now = time.get();
     canBeTriggeredWorkflows.entrySet().parallelStream()
         .filter(entry -> now.isAfter(entry.getValue().offsetInstant()))

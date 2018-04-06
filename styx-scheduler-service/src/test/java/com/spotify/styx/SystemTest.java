@@ -671,6 +671,7 @@ public class SystemTest extends StyxSchedulerServiceFixture {
     // FIXME still flaky; I think sometimes we lose the info event because of transaction conflicts
     tickSchedulerUntil(() -> {
         assertThat(getDockerRuns().size(), is(3));
+        System.out.println(getDockerRuns());
         assertThat(getTransitionedEventsByName("dequeue").size(), is(3));
         assertThat(getTransitionedEventsByName("info").size(), greaterThanOrEqualTo(1));
     });

@@ -39,6 +39,7 @@ import com.spotify.styx.storage.TransactionException;
 import com.spotify.styx.util.AlreadyInitializedException;
 import com.spotify.styx.util.CounterCapacityException;
 import com.spotify.styx.util.IsClosedException;
+import com.spotify.styx.util.ResourceNotFoundException;
 import com.spotify.styx.util.ShardedCounter;
 import com.spotify.styx.util.Time;
 import eu.javaspecialists.tjsn.concurrency.stripedexecutor.StripedExecutorService;
@@ -244,7 +245,7 @@ public class QueuedStateManager implements StateManager {
         throw new RuntimeException(e);
       }
     } catch (Exception e) {
-      System.out.println(e);
+      System.out.println("Caught exception " + e);
       throw e;
     }
   }
@@ -294,6 +295,7 @@ public class QueuedStateManager implements StateManager {
       if (!runState.data().message().map(message::equals).orElse(false)) {
         receiveIgnoreClosed(Event.info(runState.workflowInstance(), message), runState.counter());
       }
+      throw new RuntimeException("I need to fail this");
     }
 
     if (!failedTries.isEmpty()) {

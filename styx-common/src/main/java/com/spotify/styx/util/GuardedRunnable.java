@@ -34,6 +34,7 @@ public class GuardedRunnable {
       try {
         delegate.run();
       } catch (Throwable t) {
+        System.out.println("Guardable runnable threw " + t);
         LOG.warn("Guarded runnable threw", t);
       }
     };
