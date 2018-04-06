@@ -7,9 +7,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -149,6 +149,7 @@ public class QueuedStateManager implements StateManager {
   public CompletableFuture<Void> receive(Event event, long expectedCounter) throws IsClosedException {
     ensureRunning();
     LOG.info("Received event {}", event);
+    System.out.println("#1 Received event " + event);
 
     // TODO: optional retry on transaction conflict
 
@@ -195,49 +196,55 @@ public class QueuedStateManager implements StateManager {
   }
 
   private Tuple2<SequenceEvent, RunState> transition(Event event, long expectedCounter) {
-    queuedEvents.decrement();
     try {
-      return storage.runInTransaction(tx -> {
+      System.out.println("#2 Processing " + event);
+      queuedEvents.decrement();
+      try {
+        return storage.runInTransaction(tx -> {
 
-        // Read active state from datastore
-        final Optional<RunState> currentRunState =
-            tx.readActiveState(event.workflowInstance());
-        if (!currentRunState.isPresent()) {
-          String message = "Received event for unknown workflow instance: " + event;
-          LOG.warn(message);
-          throw new IllegalArgumentException(message);
-        }
+          // Read active state from datastore
+          final Optional<RunState> currentRunState =
+              tx.readActiveState(event.workflowInstance());
+          if (!currentRunState.isPresent()) {
+            String message = "Received event for unknown workflow instance: " + event;
+            LOG.warn(message);
+            throw new IllegalArgumentException(message);
+          }
 
-        // Verify counters for in-order event processing
-        verifyCounter(event, expectedCounter, currentRunState.get());
+          // Verify counters for in-order event processing
+          verifyCounter(event, expectedCounter, currentRunState.get());
 
-        final RunState nextRunState;
-        try {
-          nextRunState = currentRunState.get().transition(event, time);
-        } catch (IllegalStateException e) {
-          // TODO: illegal state transitions might become common as multiple scheduler
-          //       instances concurrently consume events from k8s.
-          LOG.warn("Illegal state transition", e);
-          throw e;
-        }
+          final RunState nextRunState;
+          try {
+            nextRunState = currentRunState.get().transition(event, time);
+          } catch (IllegalStateException e) {
+            // TODO: illegal state transitions might become common as multiple scheduler
+            //       instances concurrently consume events from k8s.
+            LOG.warn("Illegal state transition", e);
+            throw e;
+          }
 
-        // Write new state to datastore (or remove it if terminal)
-        if (nextRunState.state().isTerminal()) {
-          tx.deleteActiveState(event.workflowInstance());
-        } else {
-          tx.updateActiveState(event.workflowInstance(), nextRunState);
-        }
+          // Write new state to datastore (or remove it if terminal)
+          if (nextRunState.state().isTerminal()) {
+            tx.deleteActiveState(event.workflowInstance());
+          } else {
+            tx.updateActiveState(event.workflowInstance(), nextRunState);
+          }
 
-        // Resource limiting occurs by throwing here, or by failing the commit with a conflict.
-        updateResourceCounters(tx, event, currentRunState.get(), nextRunState);
+          // Resource limiting occurs by throwing here, or by failing the commit with a conflict.
+          updateResourceCounters(tx, event, currentRunState.get(), nextRunState);
 
-        final SequenceEvent sequenceEvent =
-            SequenceEvent.create(event, nextRunState.counter(), nextRunState.timestamp());
+          final SequenceEvent sequenceEvent =
+              SequenceEvent.create(event, nextRunState.counter(), nextRunState.timestamp());
 
-        return Tuple.of(sequenceEvent, nextRunState);
-      });
-    } catch (IOException e) {
-      throw new RuntimeException(e);
+          return Tuple.of(sequenceEvent, nextRunState);
+        });
+      } catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    } catch (Exception e) {
+      System.out.println("Caught exception " + e);
+      throw e;
     }
   }
 
@@ -286,18 +293,19 @@ public class QueuedStateManager implements StateManager {
       if (!runState.data().message().map(message::equals).orElse(false)) {
         receiveIgnoreClosed(Event.info(runState.workflowInstance(), message), runState.counter());
       }
+      //throw new RuntimeException("I need to fail this");
     }
 
     if (!failedTries.isEmpty()) {
       throw new RuntimeException(
           String.format("Failed to update resource counter for workflow instance %s",
-          runState.workflowInstance()));
+              runState.workflowInstance()));
     }
   }
 
   private boolean isDequeue(Event event, RunState runState) {
     return event.equals(Event.dequeue(event.workflowInstance(),
-                                      runState.data().resourceIds().orElse(ImmutableSet.of())));
+        runState.data().resourceIds().orElse(ImmutableSet.of())));
   }
 
   private void verifyCounter(Event event, long expectedCounter, RunState currentRunState) {
@@ -318,6 +326,8 @@ public class QueuedStateManager implements StateManager {
   }
 
   private void postTransition(SequenceEvent sequenceEvent, RunState runState) {
+    System.out.println("#3 Done processing " + sequenceEvent.event());
+
     // Write event to bigtable
     try {
       storage.writeEvent(sequenceEvent);
