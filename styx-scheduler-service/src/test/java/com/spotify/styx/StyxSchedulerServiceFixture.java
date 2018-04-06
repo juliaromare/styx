@@ -197,6 +197,9 @@ public class StyxSchedulerServiceFixture {
    * @return a best effort snapshot, without throwing ConcurrentModificationException.
    */
   List<Tuple2<SequenceEvent, RunState.State>> getTransitionedEventsByName(String name) {
+    System.out.println("List of transitioned events " + transitionedEvents.stream().map
+        (sequenceEventStateTuple2 ->
+        sequenceEventStateTuple2._1.event()).collect(toList()));
     return Lists.newArrayList(transitionedEvents).stream()
         .filter(item -> name.equals(EventUtil.name(item._1.event())))
         .collect(toList());
