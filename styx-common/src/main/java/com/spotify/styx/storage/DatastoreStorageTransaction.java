@@ -28,6 +28,7 @@ import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_CONCURRENCY;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_DESCRIPTION;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_END;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_HALTED;
+import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_IDS;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_NEXT_NATURAL_OFFSET_TRIGGER;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_NEXT_NATURAL_TRIGGER;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_NEXT_TRIGGER;
@@ -36,7 +37,7 @@ import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_START;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_WORKFLOW;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_WORKFLOW_ENABLED;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_WORKFLOW_JSON;
-import static com.spotify.styx.storage.DatastoreStorage.activeWorkflowInstanceIndexShardEntryKey;
+import static com.spotify.styx.storage.DatastoreStorage.activeWorkflowInstanceIndexShardKey;
 import static com.spotify.styx.storage.DatastoreStorage.activeWorkflowInstanceKey;
 import static com.spotify.styx.storage.DatastoreStorage.entityToBackfill;
 import static com.spotify.styx.storage.DatastoreStorage.entityToRunState;
@@ -48,6 +49,7 @@ import static com.spotify.styx.util.ShardedCounter.PROPERTY_COUNTER_ID;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_LIMIT;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_SHARD_INDEX;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_SHARD_VALUE;
+import static java.util.stream.Collectors.toList;
 
 import com.google.cloud.datastore.Datastore;
 import com.google.cloud.datastore.DatastoreException;
@@ -55,6 +57,7 @@ import com.google.cloud.datastore.Entity;
 import com.google.cloud.datastore.Key;
 import com.google.cloud.datastore.StringValue;
 import com.google.cloud.datastore.Transaction;
+import com.google.cloud.datastore.Value;
 import com.spotify.styx.model.Backfill;
 import com.spotify.styx.model.Resource;
 import com.spotify.styx.model.Workflow;
@@ -67,6 +70,8 @@ import com.spotify.styx.util.Shard;
 import com.spotify.styx.util.ShardedCounter;
 import com.spotify.styx.util.TriggerInstantSpec;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -236,10 +241,18 @@ public class DatastoreStorageTransaction implements StorageTransaction {
   @Override
   public WorkflowInstance writeActiveState(WorkflowInstance instance, RunState state)
       throws IOException {
-    // Note: the parent entity need not actually exist
-    final Key indexEntryKey = activeWorkflowInstanceIndexShardEntryKey(tx.getDatastore().newKeyFactory(), instance);
-    final Entity indexEntry = Entity.newBuilder(indexEntryKey).build();
-    tx.add(indexEntry);
+
+    // Add wfi id to index shard entity
+    final Key indexEntryKey = activeWorkflowInstanceIndexShardKey(tx.getDatastore().newKeyFactory(), instance.toKey());
+    final Entity indexShard = tx.get(indexEntryKey);
+    final List<Value<String>> ids = new ArrayList<>(indexShard.getList(PROPERTY_IDS));
+    ids.add(StringValue.newBuilder(instance.toKey()).setExcludeFromIndexes(true).build());
+    final Entity updatedIndexShard = Entity.newBuilder(indexShard)
+        .set(PROPERTY_IDS, ids)
+        .build();
+    tx.put(updatedIndexShard);
+
+    // Add wfi entity
     tx.add(runStateToEntity(tx.getDatastore().newKeyFactory(), instance, state));
     return instance;
   }
@@ -253,7 +266,19 @@ public class DatastoreStorageTransaction implements StorageTransaction {
 
   @Override
   public WorkflowInstance deleteActiveState(WorkflowInstance instance) {
-    tx.delete(activeWorkflowInstanceIndexShardEntryKey(tx.getDatastore().newKeyFactory(), instance));
+
+    // Remove wfi id from index shard entity
+    final Key indexShardKey = activeWorkflowInstanceIndexShardKey(tx.getDatastore().newKeyFactory(), instance.toKey());
+    final Entity indexShard = tx.get(indexShardKey);
+    final List<Value<String>> ids = indexShard.<Value<String>>getList(PROPERTY_IDS).stream()
+        .filter(value -> !value.get().equals(instance.toKey()))
+        .collect(toList());
+    final Entity updatedIndexShard = Entity.newBuilder(indexShard)
+        .set(PROPERTY_IDS, ids)
+        .build();
+    tx.put(updatedIndexShard);
+
+    // Delete wfi entity
     tx.delete(activeWorkflowInstanceKey(tx.getDatastore().newKeyFactory(), instance));
     return instance;
   }

@@ -24,7 +24,7 @@ import static com.github.npathai.hamcrestopt.OptionalMatchers.hasValue;
 import static com.spotify.styx.model.Schedule.DAYS;
 import static com.spotify.styx.model.Schedule.HOURS;
 import static com.spotify.styx.storage.DatastoreStorage.PROPERTY_CONFIG_RESOURCES_SYNC_ENABLED;
-import static com.spotify.styx.storage.DatastoreStorage.activeWorkflowInstanceIndexShardEntryKey;
+import static com.spotify.styx.storage.DatastoreStorage.activeWorkflowInstanceIndexShardKey;
 import static com.spotify.styx.testdata.TestData.FULL_WORKFLOW_CONFIGURATION;
 import static com.spotify.styx.testdata.TestData.WORKFLOW_INSTANCE;
 import static org.hamcrest.Matchers.containsInAnyOrder;
@@ -192,6 +192,8 @@ public class DatastoreStorageTest {
   public void setUp() throws Exception {
     datastore = helper.getOptions().getService();
     storage = new DatastoreStorage(datastore, Duration.ZERO);
+
+    storage.indexActiveWorkflowInstances();
   }
 
   @After
@@ -390,21 +392,21 @@ public class DatastoreStorageTest {
     storage.writeActiveState(WORKFLOW_INSTANCE1, RUN_STATE);
     storage.writeActiveState(WORKFLOW_INSTANCE2, RUN_STATE2);
 
-    final Key indexEntryKey1 = activeWorkflowInstanceIndexShardEntryKey(datastore.newKeyFactory(), WORKFLOW_INSTANCE1);
-    final Key indexEntryKey2 = activeWorkflowInstanceIndexShardEntryKey(datastore.newKeyFactory(), WORKFLOW_INSTANCE2);
+    final Key shardKey1 = activeWorkflowInstanceIndexShardKey(datastore.newKeyFactory(), WORKFLOW_INSTANCE1.toKey());
+    final Key shardKey2 = activeWorkflowInstanceIndexShardKey(datastore.newKeyFactory(), WORKFLOW_INSTANCE2.toKey());
 
-    assertThat(datastore.get(indexEntryKey1), notNullValue());
-    assertThat(datastore.get(indexEntryKey2), notNullValue());
+    assertThat(datastore.get(shardKey1), notNullValue());
+    assertThat(datastore.get(shardKey2), notNullValue());
 
-    datastore.delete(indexEntryKey1, indexEntryKey2);
+    datastore.delete(shardKey1, shardKey2);
 
-    assertThat(datastore.get(indexEntryKey1), is(nullValue()));
-    assertThat(datastore.get(indexEntryKey2), is(nullValue()));
+    assertThat(datastore.get(shardKey1), is(nullValue()));
+    assertThat(datastore.get(shardKey2), is(nullValue()));
 
     storage.indexActiveWorkflowInstances();
 
-    assertThat(datastore.get(indexEntryKey1), notNullValue());
-    assertThat(datastore.get(indexEntryKey2), notNullValue());
+    assertThat(datastore.get(shardKey1), notNullValue());
+    assertThat(datastore.get(shardKey2), notNullValue());
 
     final Map<WorkflowInstance, RunState> activeStates = storage.readActiveStates();
 

@@ -28,6 +28,8 @@ import static com.spotify.styx.util.ShardedCounter.PROPERTY_COUNTER_ID;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_LIMIT;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_SHARD_INDEX;
 import static com.spotify.styx.util.ShardedCounter.PROPERTY_SHARD_VALUE;
+import static java.util.Collections.emptyList;
+import static java.util.stream.Collectors.groupingBy;
 import static java.util.stream.Collectors.toList;
 import static java.util.stream.Collectors.toMap;
 
@@ -112,7 +114,6 @@ public class DatastoreStorage {
   public static final String KIND_WORKFLOW = "Workflow";
   public static final String KIND_ACTIVE_WORKFLOW_INSTANCE = "ActiveWorkflowInstance";
   public static final String KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD = "ActiveWorkflowInstanceIndexShard";
-  public static final String KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD_ENTRY = "ActiveWorkflowInstanceIndexShardEntry";
   public static final String KIND_RESOURCE = "Resource";
   public static final String KIND_BACKFILL = "Backfill";
 
@@ -141,6 +142,8 @@ public class DatastoreStorage {
   public static final String PROPERTY_HALTED = "halted";
   public static final String PROPERTY_DESCRIPTION = "description";
   public static final String PROPERTY_SUBMISSION_RATE_LIMIT = "submissionRateLimit";
+
+  public static final String PROPERTY_IDS = "ids";
 
   public static final String PROPERTY_STATE = "state";
   public static final String PROPERTY_STATE_TIMESTAMP = "stateTimestamp";
@@ -192,15 +195,21 @@ public class DatastoreStorage {
 
   void indexActiveWorkflowInstances() {
     // XXX: this listing is not strongly consistent
-    final List<Entity> indexEntries = StreamUtil.stream(
+    final Map<String, List<String>> indexShardsValues = StreamUtil.stream(
         datastore.run(Query.newKeyQueryBuilder().setKind(KIND_ACTIVE_WORKFLOW_INSTANCE).build()))
         .map(Key::getName)
-        .map(wfiKey -> activeWorkflowInstanceIndexShardEntryKey(datastore.newKeyFactory(), wfiKey))
-        .map(indexEntryKey -> Entity.newBuilder(indexEntryKey).build())
-        .collect(toList());
+        .collect(groupingBy(DatastoreStorage::activeWorkflowInstanceIndexShardName));
 
-    for (List<Entity> batch : Lists.partition(indexEntries, MAX_NUMBER_OF_ENTITIES_IN_ONE_BATCH)) {
-      datastore.put(batch.toArray(new Entity[0]));
+    for (String shardName : activeWorkflowInstanceIndexShardNames()) {
+      final List<Value<String>> values = indexShardsValues.getOrDefault(shardName, emptyList()).stream()
+          .map(name -> StringValue.newBuilder(name).setExcludeFromIndexes(true).build())
+          .collect(toList());
+      final Key shardKey = datastore.newKeyFactory().setKind(KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD)
+          .newKey(shardName);
+      final Entity indexShardEntity = Entity.newBuilder(shardKey)
+          .set(PROPERTY_IDS, values)
+          .build();
+      datastore.put(indexShardEntity);
     }
   }
 
@@ -407,7 +416,7 @@ public class DatastoreStorage {
             datastore.run(Query.newEntityQueryBuilder().setFilter(PropertyFilter.hasAncestor(key)).build())))
         .collect(toList()).stream() // collect here to execute batch reads in parallel
         .flatMap(task -> StreamUtil.stream(task.join()))
-        .map(entity -> entity.getKey().getName())
+        .flatMap(entity -> entity.<Value<String>>getList(PROPERTY_IDS).stream().map(Value::get))
         .map(name -> activeWorkflowInstanceKey(datastore.newKeyFactory(), name))
         .collect(toList());
 
@@ -506,14 +515,15 @@ public class DatastoreStorage {
   }
 
   static List<Key> activeWorkflowInstanceIndexShardKeys(KeyFactory keyFactory) {
-    return IntStream.range(0, ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARDS)
-        .mapToObj(DatastoreStorage::activeWorkflowInstanceIndexShardName)
+    return activeWorkflowInstanceIndexShardNames().stream()
         .map(name -> keyFactory.setKind(KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD).newKey(name))
         .collect(toList());
   }
 
-  static String activeWorkflowInstanceIndexShardName(WorkflowInstance workflowInstance) {
-    return activeWorkflowInstanceIndexShardName(workflowInstance.toKey());
+  private static List<String> activeWorkflowInstanceIndexShardNames() {
+    return IntStream.range(0, ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARDS)
+        .mapToObj(DatastoreStorage::activeWorkflowInstanceIndexShardName)
+        .collect(toList());
   }
 
   private static String activeWorkflowInstanceIndexShardName(String workflowInstanceKey) {
@@ -526,16 +536,9 @@ public class DatastoreStorage {
     return "shard-" + index;
   }
 
-  static Key activeWorkflowInstanceIndexShardEntryKey(KeyFactory keyFactory, WorkflowInstance workflowInstance) {
-    final String workflowInstanceKey = workflowInstance.toKey();
-    return activeWorkflowInstanceIndexShardEntryKey(keyFactory, workflowInstanceKey);
-  }
-
-  private static Key activeWorkflowInstanceIndexShardEntryKey(KeyFactory keyFactory, String workflowInstanceKey) {
-    return keyFactory.setKind(KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD_ENTRY)
-        .addAncestor(PathElement.of(KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD,
-            activeWorkflowInstanceIndexShardName(workflowInstanceKey)))
-        .newKey(workflowInstanceKey);
+  static Key activeWorkflowInstanceIndexShardKey(KeyFactory keyFactory, String workflowInstanceKey) {
+    return keyFactory.setKind(KIND_ACTIVE_WORKFLOW_INSTANCE_INDEX_SHARD)
+        .newKey(activeWorkflowInstanceIndexShardName(workflowInstanceKey));
   }
 
   static Entity runStateToEntity(KeyFactory keyFactory, WorkflowInstance wfi, RunState state)
