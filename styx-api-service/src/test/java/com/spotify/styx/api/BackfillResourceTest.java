@@ -26,6 +26,8 @@ import static com.spotify.styx.api.JsonMatchers.assertJson;
 import static com.spotify.styx.api.JsonMatchers.assertNoJson;
 import static com.spotify.styx.testdata.TestData.EXECUTION_DESCRIPTION;
 import static com.spotify.styx.testdata.TestData.RESOURCE_IDS;
+import static com.spotify.styx.util.Connections.createBigTableConnection;
+import static com.spotify.styx.util.Connections.createDatastore;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
@@ -37,6 +39,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.internal.verification.VerificationModeFactory.times;
 
+import com.google.cloud.bigtable.hbase.BigtableConfiguration;
+import com.google.cloud.datastore.Datastore;
+import com.google.cloud.datastore.DatastoreOptions;
 import com.google.cloud.datastore.testing.LocalDatastoreHelper;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -57,6 +62,7 @@ import com.spotify.styx.model.Workflow;
 import com.spotify.styx.model.WorkflowConfiguration;
 import com.spotify.styx.model.WorkflowId;
 import com.spotify.styx.model.WorkflowInstance;
+import com.spotify.styx.monitoring.Stats;
 import com.spotify.styx.serialization.Json;
 import com.spotify.styx.state.RunState;
 import com.spotify.styx.state.RunState.State;
@@ -65,8 +71,10 @@ import com.spotify.styx.state.Trigger;
 import com.spotify.styx.storage.AggregateStorage;
 import com.spotify.styx.storage.BigtableMocker;
 import com.spotify.styx.storage.BigtableStorage;
+import com.spotify.styx.storage.InstrumentedDatastore;
 import com.spotify.styx.util.ShardedCounter;
 import com.spotify.styx.util.WorkflowValidator;
+import com.typesafe.config.Config;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -74,6 +82,7 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.logging.Level;
 import okio.ByteString;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.Connection;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -88,7 +97,7 @@ public class BackfillResourceTest extends VersionedApiTest {
   private static final String SCHEDULER_BASE = "http://localhost:12345";
 
   private static LocalDatastoreHelper localDatastore;
-  private Connection bigtable = setupBigTableMockTable();
+  // private Connection bigtable = setupBigTableMockTable();
   @Mock private ShardedCounter shardedCounter;
 
   private AggregateStorage storage;
@@ -154,24 +163,24 @@ public class BackfillResourceTest extends VersionedApiTest {
 
   @Override
   protected void init(Environment environment) {
-    storage = new AggregateStorage(bigtable, localDatastore.getOptions().getService(),
-                                   Duration.ZERO);
-
-    environment.routingEngine()
-        .registerRoutes(new BackfillResource(SCHEDULER_BASE, storage, workflowValidator).routes());
+//    storage = new AggregateStorage(bigtable, localDatastore.getOptions().getService(),
+//                                   Duration.ZERO);
+//
+//    environment.routingEngine()
+//        .registerRoutes(new BackfillResource(SCHEDULER_BASE, storage, workflowValidator).routes());
   }
 
-  @BeforeClass
+  // @BeforeClass
   public static void setUpClass() throws Exception {
     final java.util.logging.Logger datastoreEmulatorLogger =
         java.util.logging.Logger.getLogger(LocalDatastoreHelper.class.getName());
     datastoreEmulatorLogger.setLevel(Level.OFF);
 
-    localDatastore = LocalDatastoreHelper.create(1.0); // 100% global consistency
-    localDatastore.start();
+    // localDatastore = LocalDatastoreHelper.create(1.0); // 100% global consistency
+    // localDatastore.start();
   }
 
-  @AfterClass
+  // @AfterClass
   public static void tearDownClass() throws Exception {
     if (localDatastore != null) {
       try {
@@ -182,7 +191,7 @@ public class BackfillResourceTest extends VersionedApiTest {
     }
   }
 
-  @Before
+  // @Before
   public void setUp() throws Exception {
     when(workflowValidator.validateWorkflow(any())).thenReturn(Collections.emptyList());
     when(workflowValidator.validateWorkflowConfiguration(any())).thenReturn(Collections.emptyList());
@@ -209,7 +218,7 @@ public class BackfillResourceTest extends VersionedApiTest {
     storage.storeBackfill(BACKFILL_1);
   }
 
-  @After
+  // @After
   public void tearDown() throws Exception {
     localDatastore.reset();
   }
@@ -843,4 +852,51 @@ public class BackfillResourceTest extends VersionedApiTest {
     }
     return bigtable;
   }
+
+  @Test
+  public void testImprovment() {
+
+    final Connection bigTable = createBigTableConnection();
+    final Datastore datastore = createDatastore();
+
+    storage = new AggregateStorage(bigTable, datastore,
+        Duration.ZERO);
+    BackfillResource bf0 = new BackfillResource(SCHEDULER_BASE, storage, workflowValidator);
+    final Optional<Backfill> backfillOpt = storage.backfill("backfill-1533687494727-48771");
+
+    long startTime = System.currentTimeMillis();
+    bf0.retrieveBackfillStatuses(backfillOpt.get());
+    long stopTime = System.currentTimeMillis();
+    System.out.println(stopTime-startTime);
+
+  }
+
+  public static InstrumentedDatastore createDatastore() {
+    final String projectId = "styx-1265";
+    final String namespace = "styx-service";
+
+
+    final Datastore datastore = DatastoreOptions.newBuilder()
+        .setNamespace(namespace)
+        .setProjectId(projectId)
+        .build()
+        .getService();
+
+    return InstrumentedDatastore.of(datastore, Stats.NOOP);
+  }
+
+  public static Connection createBigTableConnection() {
+    final String projectId = "styx-1265";
+    final String instanceId = "styx-production";
+
+
+
+    final Configuration bigtableConfiguration = new Configuration();
+    bigtableConfiguration.set("google.bigtable.project.id", projectId);
+    bigtableConfiguration.set("google.bigtable.instance.id", instanceId);
+    bigtableConfiguration.setBoolean("google.bigtable.rpc.use.timeouts", true);
+
+    return BigtableConfiguration.connect(bigtableConfiguration);
+  }
+
 }

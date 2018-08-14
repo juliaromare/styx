@@ -361,7 +361,7 @@ public final class BackfillResource {
     return Response.forStatus(Status.OK).withPayload(backfill);
   }
 
-  private List<RunStateData> retrieveBackfillStatuses(Backfill backfill) {
+  List<RunStateData> retrieveBackfillStatuses(Backfill backfill) {
     final List<RunStateData> processedStates;
     final List<RunStateData> waitingStates;
 
