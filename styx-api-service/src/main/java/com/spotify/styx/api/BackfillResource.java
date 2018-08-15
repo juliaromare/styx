@@ -88,13 +88,14 @@ public final class BackfillResource implements Closeable {
   private static final String SCHEDULER_BASE_PATH = "/api/v0";
   private static final String UNKNOWN = "UNKNOWN";
   private static final String WAITING = "WAITING";
-  private static final int CONCURRENCY = 16;
+  private static final int CONCURRENCY = 32;
 
   private final Storage storage;
   private final String schedulerServiceBaseUrl;
   private final WorkflowValidator workflowValidator;
 
   private final ForkJoinPool forkJoinPool;
+  private final ForkJoinPool forkJoinPool1;
 
   public BackfillResource(String schedulerServiceBaseUrl, Storage storage,
       WorkflowValidator workflowValidator) {
@@ -102,6 +103,7 @@ public final class BackfillResource implements Closeable {
     this.storage = Objects.requireNonNull(storage);
     this.workflowValidator = Objects.requireNonNull(workflowValidator, "workflowValidator");
     this.forkJoinPool = new ForkJoinPool(CONCURRENCY);
+    this.forkJoinPool1 = new ForkJoinPool(CONCURRENCY);
   }
 
   public Stream<Route<AsyncHandler<Response<ByteString>>>> routes() {
@@ -149,6 +151,12 @@ public final class BackfillResource implements Closeable {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
     }
+    forkJoinPool1.shutdownNow();
+    try {
+      forkJoinPool1.awaitTermination(30, TimeUnit.SECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   public BackfillsPayload getBackfills(RequestContext rc) {
@@ -184,6 +192,75 @@ public final class BackfillResource implements Closeable {
         .collect(toList());
 
     return BackfillsPayload.create(backfillPayloads);
+  }
+
+  public BackfillsPayload getBackfills(String componentId, String workflow1) {
+    final Optional<String> componentOpt = Optional.of(componentId);
+    final Optional<String> workflowOpt = Optional.of(workflow1);
+    final boolean includeStatuses = true;
+    final boolean showAll = true;
+
+    final List<BackfillPayload> backfillPayloads;
+    final List<Backfill> backfills;
+    try {
+      if (componentOpt.isPresent() && workflowOpt.isPresent()) {
+        final WorkflowId workflowId = WorkflowId.create(componentOpt.get(), workflowOpt.get());
+        backfills = storage.backfillsForWorkflowId(showAll, workflowId);
+      } else if (componentOpt.isPresent()) {
+        final String component = componentOpt.get();
+        backfills = storage.backfillsForComponent(showAll, component);
+      } else if (workflowOpt.isPresent()) {
+        final String workflow = workflowOpt.get();
+        backfills = storage.backfillsForWorkflow(showAll, workflow);
+      } else {
+        backfills = storage.backfills(showAll);
+      }
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+
+    backfillPayloads = backfills.stream()
+        .map(backfill -> forkJoinPool1.submit(() -> BackfillPayload.create(
+            backfill,
+            includeStatuses
+                ? Optional.of(RunStateDataPayload.create(retrieveBackfillStatuses(backfill)))
+                : Optional.empty())))
+        .collect(toList())
+        .stream()
+        .map(ForkJoinTask::join)
+        .collect(toList());
+
+
+    return BackfillsPayload.create(backfillPayloads);
+
+//    final Stream<Backfill> backfills;
+//    try {
+//      if (componentOpt.isPresent() && workflowOpt.isPresent()) {
+//        final WorkflowId workflowId = WorkflowId.create(componentOpt.get(), workflowOpt.get());
+//        backfills = storage.backfillsForWorkflowId(showAll, workflowId).stream();
+//      } else if (componentOpt.isPresent()) {
+//        final String component = componentOpt.get();
+//        backfills = storage.backfillsForComponent(showAll, component).stream();
+//      } else if (workflowOpt.isPresent()) {
+//        final String workflow = workflowOpt.get();
+//        backfills = storage.backfillsForWorkflow(showAll, workflow).stream();
+//      } else {
+//        backfills = storage.backfills(showAll).stream();
+//      }
+//    } catch (IOException e) {
+//      throw new RuntimeException(e);
+//    }
+//
+//    final List<BackfillPayload> backfillPayloads = backfills.parallel()
+//        .map(backfill -> BackfillPayload.create(
+//            backfill,
+//            includeStatuses
+//                ? Optional.of(RunStateDataPayload.create(retrieveBackfillStatuses(backfill)))
+//                : Optional.empty()))
+//        .collect(toList());
+//
+//    return BackfillsPayload.create(backfillPayloads);
+
   }
 
   public Response<BackfillPayload> getBackfill(RequestContext rc, String id) {

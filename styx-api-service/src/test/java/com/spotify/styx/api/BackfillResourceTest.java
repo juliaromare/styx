@@ -869,11 +869,12 @@ public class BackfillResourceTest extends VersionedApiTest {
     int avgTime = 0;
     for(int i = 0; i<=4; i++) {
       long startTime = System.currentTimeMillis();
-      List<RunStateData> listStates = bf0.retrieveBackfillStatuses(backfillOpt.get());
+      // List<RunStateData> listStates = bf0.retrieveBackfillStatuses(backfillOpt.get());
+      List<BackfillPayload> listBackfills = bf0.getBackfills("gabo-anonym-normal-priority","events.Ap.AdEvent.gcs").backfills();
       long stopTime = System.currentTimeMillis();
       System.out.println(stopTime-startTime);
       avgTime += (stopTime-startTime);
-      System.out.println("size: " + listStates.size());
+      System.out.println("size: " + listBackfills.size());
     }
     System.out.println("average time: " + avgTime/5);
 
