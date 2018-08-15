@@ -367,7 +367,7 @@ public final class BackfillResource {
 
     Map<WorkflowInstance, RunState> activeWorkflowInstances;
     try {
-      activeWorkflowInstances = storage.readActiveStates();
+      activeWorkflowInstances = storage.readActiveStatesByTriggerId(backfill.id());
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
@@ -383,6 +383,11 @@ public final class BackfillResource {
         .map(instant -> {
           final WorkflowInstance wfi = WorkflowInstance
               .create(backfill.workflowId(), toParameter(backfill.schedule(), instant));
+          if (activeWorkflowInstances.containsKey(wfi)) {
+            RunState state = activeWorkflowInstances.get(wfi);
+            return RunStateData.create(state.workflowInstance(), state.state().name(), state.data());
+          }
+
           Optional<RunState> restoredStateOpt = ReplayEvents.getBackfillRunState(
               wfi,
               activeWorkflowInstances,

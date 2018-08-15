@@ -59,10 +59,7 @@ public final class ReplayEvents {
 
     RunState restoredState = RunState.fresh(workflowInstance, time);
 
-    final long lastConsumedEvent =
-        Optional.ofNullable(activeWorkflowInstances.get(workflowInstance))
-            .map(RunState::counter)
-            .orElse(sequenceEvents.last().counter());
+    final long lastConsumedEvent = sequenceEvents.last().counter();
 
     for (SequenceEvent sequenceEvent : sequenceEvents) {
       // The active state event counters are read before the events themselves and styx is 

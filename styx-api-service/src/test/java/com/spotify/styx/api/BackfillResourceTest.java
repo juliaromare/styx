@@ -864,10 +864,15 @@ public class BackfillResourceTest extends VersionedApiTest {
     BackfillResource bf0 = new BackfillResource(SCHEDULER_BASE, storage, workflowValidator);
     final Optional<Backfill> backfillOpt = storage.backfill("backfill-1533687494727-48771");
 
-    long startTime = System.currentTimeMillis();
-    bf0.retrieveBackfillStatuses(backfillOpt.get());
-    long stopTime = System.currentTimeMillis();
-    System.out.println(stopTime-startTime);
+    int avgTime = 0;
+    for(int i = 0; i<=4; i++) {
+      long startTime = System.currentTimeMillis();
+      bf0.retrieveBackfillStatuses(backfillOpt.get());
+      long stopTime = System.currentTimeMillis();
+      System.out.println(stopTime-startTime);
+      avgTime += (stopTime-startTime);
+    }
+    System.out.println("average time: " + avgTime/5);
 
   }
 
