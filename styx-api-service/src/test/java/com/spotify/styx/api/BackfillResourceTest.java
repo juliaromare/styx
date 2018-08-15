@@ -52,6 +52,7 @@ import com.spotify.apollo.StatusType;
 import com.spotify.apollo.test.StubClient;
 import com.spotify.apollo.test.response.ResponseWithDelay;
 import com.spotify.apollo.test.response.Responses;
+import com.spotify.styx.api.RunStateDataPayload.RunStateData;
 import com.spotify.styx.model.Backfill;
 import com.spotify.styx.model.BackfillInput;
 import com.spotify.styx.model.EditableBackfillInput;
@@ -79,6 +80,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
 import okio.ByteString;
@@ -862,15 +864,16 @@ public class BackfillResourceTest extends VersionedApiTest {
     storage = new AggregateStorage(bigTable, datastore,
         Duration.ZERO);
     BackfillResource bf0 = new BackfillResource(SCHEDULER_BASE, storage, workflowValidator);
-    final Optional<Backfill> backfillOpt = storage.backfill("backfill-1533687494727-48771");
+    final Optional<Backfill> backfillOpt = storage.backfill("backfill-1533733049037-32760");
 
     int avgTime = 0;
     for(int i = 0; i<=4; i++) {
       long startTime = System.currentTimeMillis();
-      bf0.retrieveBackfillStatuses(backfillOpt.get());
+      List<RunStateData> listStates = bf0.retrieveBackfillStatuses(backfillOpt.get());
       long stopTime = System.currentTimeMillis();
       System.out.println(stopTime-startTime);
       avgTime += (stopTime-startTime);
+      System.out.println("size: " + listStates.size());
     }
     System.out.println("average time: " + avgTime/5);
 
